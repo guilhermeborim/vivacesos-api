@@ -1,0 +1,9 @@
+services:
+  vivacesos:
+    image: bitnami/postgresql:latest
+    ports:
+      - 5434:5432
+    environment:
+      - POSTGRESQL_USERNAME=${DATABASE_USER}
+      - POSTGRESQL_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRESQL_DATABASE=${DATABASE_NAME}

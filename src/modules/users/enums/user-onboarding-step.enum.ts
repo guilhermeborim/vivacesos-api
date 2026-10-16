@@ -1,0 +1,6 @@
+export enum UserOnboardingStep {
+  CREATE_CLINIC = 'CREATE_CLINIC',
+  LINK_PROFESSIONAL = 'LINK_PROFESSIONAL',
+  DONE = 'DONE',
+  FINISHED = 'FINISHED',
+}
