@@ -69,6 +69,15 @@ export class Professional {
   })
   availabilityRestricted: boolean;
 
+  /** Duração padrão da consulta, em minutos (múltiplo de 5). */
+  @Column({
+    name: 'appointmentDurationMinutes',
+    type: 'smallint',
+    default: 60,
+    nullable: false,
+  })
+  appointmentDurationMinutes: number;
+
   @Column({ name: 'active', type: 'boolean', default: true, nullable: false })
   active: boolean;
 

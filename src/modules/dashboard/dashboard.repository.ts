@@ -34,7 +34,7 @@ const TODAY_START =
 const TODAY_END =
   "((date_trunc('day', now() AT TIME ZONE $2) + interval '1 day') AT TIME ZONE $2)";
 const PROFESSIONAL = 'AND ($9::uuid IS NULL OR a."professionalId" = $9::uuid)';
-const BILLABLE = "a.status IN ('AGENDADA', 'CONFIRMADA', 'CONCLUIDA')";
+const BILLABLE = "a.status IN ('AGENDADA', 'CONFIRMADA', 'CHEGOU', 'CONCLUIDA')";
 
 const toNumber = (value: unknown) => Number(value ?? 0);
 
@@ -238,7 +238,7 @@ export class DashboardRepository {
        FROM appointments a
        INNER JOIN patients p ON p.id = a."patientId"
        WHERE a."clinicId" = $1 AND a."professionalId" = $9::uuid
-         AND a.status = 'CONFIRMADA'
+         AND a.status IN ('CONFIRMADA', 'CHEGOU')
          AND a."startsAt" >= ${TODAY_START} AND a."startsAt" < ${TODAY_END}
          AND NOT EXISTS (
            SELECT 1 FROM medical_record_entries e

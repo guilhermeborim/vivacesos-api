@@ -210,6 +210,7 @@ export class ProfessionalsService {
         type: p.type,
         crm: p.crm ? this.crmCrypto.decrypt(p.crm) : null,
         active: p.active,
+        appointmentDurationMinutes: p.appointmentDurationMinutes,
         ...(canSeePayout && { payoutPercent: p.payoutPercent }),
       },
     };

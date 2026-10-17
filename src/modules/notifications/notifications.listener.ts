@@ -41,7 +41,7 @@ export class NotificationsListener {
         type: 'APPOINTMENT_CREATED',
         title: 'Nova consulta agendada',
         message: `${e.patientName} — ${formatWhen(e.startsAt)}`,
-        link: '/appointments',
+        link: '/schedule',
         data: { appointmentId: e.appointmentId },
       },
       e.actorUserId ?? undefined,
@@ -52,7 +52,7 @@ export class NotificationsListener {
   async onAppointmentStatusChanged(e: AppointmentStatusChangedEvent) {
     const who = `${e.patientName} — ${formatWhen(e.startsAt)}`;
     const base = {
-      link: '/appointments',
+      link: '/schedule',
       data: { appointmentId: e.appointmentId },
     };
 
@@ -73,6 +73,19 @@ export class NotificationsListener {
         e.clinicId,
         [e.professionalUserId],
         draft,
+        e.actorUserId ?? undefined,
+      );
+    } else if (e.status === 'CHEGOU') {
+      await this.notifications.notifyUsers(
+        e.clinicId,
+        [e.professionalUserId],
+        {
+          ...base,
+          link: '/medical-record/now',
+          type: 'APPOINTMENT_ARRIVED',
+          title: 'Paciente chegou',
+          message: who,
+        },
         e.actorUserId ?? undefined,
       );
     } else if (e.status === 'CONCLUIDA') {

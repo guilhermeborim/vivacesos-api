@@ -9,13 +9,17 @@ import { OnEvent } from '@nestjs/event-emitter';
 import type { ClinicUserRole } from '../../common/enums/clinic-user-role.enum.js';
 import { CryptoService } from '../../security/crypto.service.js';
 import { AppointmentsRepository } from '../appointments/appointments.repository.js';
-import { RECORDABLE_APPOINTMENT_STATUSES } from '../appointments/enums/appointment-status.enum.js';
+import {
+  AppointmentStatus,
+  RECORDABLE_APPOINTMENT_STATUSES,
+} from '../appointments/enums/appointment-status.enum.js';
 import {
   PATIENT_CREATED,
   PatientCreatedEvent,
 } from '../patients/events/patient-created.event.js';
 import { PatientsRepository } from '../patients/patients.repository.js';
 import { ProfessionalsRepository } from '../professionals/professionals.repository.js';
+import type { EntryItemKind } from './entities/medical-record-entry-item.entity.js';
 import type { MedicalRecordEntry } from './entities/medical-record-entry.entity.js';
 import { MedicalRecordEntryStatus } from './enums/medical-record-entry-status.enum.js';
 import { MedicalRecordsRepository } from './medical-records.repository.js';
@@ -37,6 +41,7 @@ export interface Actor {
 export class MedicalRecordsService {
   private readonly contentCrypto;
   private readonly reasonCrypto;
+  private readonly itemCrypto;
 
   constructor(
     private readonly records: MedicalRecordsRepository,
@@ -48,6 +53,7 @@ export class MedicalRecordsService {
   ) {
     this.contentCrypto = crypto.forField('medical-record:content');
     this.reasonCrypto = crypto.forField('medical-record:cancel-reason');
+    this.itemCrypto = crypto.forField('medical-record:item');
   }
 
   /** Abre o prontuário assim que o paciente é cadastrado. */
@@ -150,68 +156,69 @@ export class MedicalRecordsService {
     if (!patient) throw new NotFoundException('Paciente não encontrado!');
     const record = await this.records.ensureForPatient(clinicId, patientId);
 
-    let appointmentId: string;
-    let parentEntryId: string | null = null;
-
-    if (input.parentEntryId) {
-      const parent = await this.records.findEntryById(
-        clinicId,
-        input.parentEntryId,
-      );
-      if (!parent || parent.recordId !== record.id) {
-        throw new NotFoundException('Ficha original não encontrada!');
-      }
-      if (parent.status === MedicalRecordEntryStatus.CANCELADA) {
-        throw new BadRequestException(
-          'Não é possível criar adendo de uma ficha cancelada!',
-        );
-      }
-      if (parent.parentEntryId) {
-        throw new BadRequestException(
-          'Não é possível criar adendo de um adendo! Use a ficha original.',
-        );
-      }
-      appointmentId = parent.appointmentId;
-      parentEntryId = parent.id;
-    } else {
-      const appointment = await this.appointments.findById(
-        clinicId,
-        input.appointmentId!,
-      );
-      if (!appointment || appointment.patientId !== patientId) {
-        throw new NotFoundException('Consulta não encontrada!');
-      }
-      if (appointment.professionalId !== professional.id) {
-        throw new ForbiddenException(
-          'Somente o profissional da consulta pode criar a ficha!',
-        );
-      }
-      if (!RECORDABLE_APPOINTMENT_STATUSES.includes(appointment.status)) {
-        throw new BadRequestException(
-          'Somente consultas confirmadas podem receber ficha!',
-        );
-      }
-      if (
-        await this.records.hasActiveEntryForAppointment(
-          clinicId,
-          appointment.id,
-        )
-      ) {
-        throw new ConflictException(
-          'Esta consulta já possui uma ficha ativa! Use um adendo para complementar.',
-        );
-      }
-      appointmentId = appointment.id;
-    }
-
-    const entry = await this.records.createEntry({
+    const appointment = await this.appointments.findById(
       clinicId,
-      recordId: record.id,
-      appointmentId,
-      professionalId: professional.id,
-      parentEntryId,
-      content: this.contentCrypto.encrypt(input.content),
-    });
+      input.appointmentId,
+    );
+    if (!appointment || appointment.patientId !== patientId) {
+      throw new NotFoundException('Consulta não encontrada!');
+    }
+    if (appointment.professionalId !== professional.id) {
+      throw new ForbiddenException(
+        'Somente o profissional da consulta pode criar a ficha!',
+      );
+    }
+    // Consulta concluída só recebe nova ficha para corrigir uma ficha cancelada.
+    const redoingCanceled =
+      appointment.status === AppointmentStatus.CONCLUIDA &&
+      (await this.records.hasCanceledEntryForAppointment(
+        clinicId,
+        appointment.id,
+      ));
+    if (
+      !RECORDABLE_APPOINTMENT_STATUSES.includes(appointment.status) &&
+      !redoingCanceled
+    ) {
+      throw new BadRequestException(
+        'Somente consultas confirmadas ou com paciente presente podem receber ficha!',
+      );
+    }
+    if (
+      await this.records.hasActiveEntryForAppointment(clinicId, appointment.id)
+    ) {
+      throw new ConflictException('Esta consulta já possui uma ficha ativa!');
+    }
+    const appointmentId = appointment.id;
+
+    const items = [
+      ...input.prescriptions.map((p) => ({
+        kind: 'PRESCRICAO' as const,
+        data: this.itemCrypto.encrypt(JSON.stringify(p)),
+      })),
+      ...input.exams.map((x) => ({
+        kind: 'EXAME' as const,
+        data: this.itemCrypto.encrypt(JSON.stringify(x)),
+      })),
+      ...input.certificates.map((c) => ({
+        kind: 'ATESTADO' as const,
+        data: this.itemCrypto.encrypt(JSON.stringify(c)),
+      })),
+      ...input.referrals.map((r) => ({
+        kind: 'ENCAMINHAMENTO' as const,
+        data: this.itemCrypto.encrypt(JSON.stringify(r)),
+      })),
+    ];
+    const entry = await this.records.createEntry(
+      {
+        clinicId,
+        recordId: record.id,
+        appointmentId,
+        professionalId: professional.id,
+        parentEntryId: null,
+        content: this.contentCrypto.encrypt(input.content),
+      },
+      items,
+    );
 
     await this.audit.log({
       clinicId,
@@ -312,6 +319,20 @@ export class MedicalRecordsService {
     return professional;
   }
 
+  /** Itens da ficha de um tipo, já decifrados e na ordem em que foram escritos. */
+  private itemsOf(e: MedicalRecordEntry, kind: EntryItemKind) {
+    return (e.items ?? [])
+      .filter((i) => i.kind === kind)
+      .sort((a, b) => a.position - b.position)
+      .map((i) => ({
+        itemId: i.id,
+        ...(JSON.parse(this.itemCrypto.decrypt(i.data)) as Record<
+          string,
+          string | number
+        >),
+      }));
+  }
+
   private toEntryResponse(e: MedicalRecordEntry) {
     return {
       entryId: e.id,
@@ -323,6 +344,10 @@ export class MedicalRecordsService {
         : null,
       canceledAt: e.canceledAt,
       createdAt: e.createdAt,
+      prescriptions: this.itemsOf(e, 'PRESCRICAO'),
+      exams: this.itemsOf(e, 'EXAME'),
+      certificates: this.itemsOf(e, 'ATESTADO'),
+      referrals: this.itemsOf(e, 'ENCAMINHAMENTO'),
       appointment: {
         appointmentId: e.appointmentId,
         startsAt: e.appointment.startsAt,

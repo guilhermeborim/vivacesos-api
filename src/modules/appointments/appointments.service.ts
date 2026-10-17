@@ -16,6 +16,9 @@ import {
 } from '../../common/schemas/payment.schema.js';
 import { zonedToUtc } from '../../common/utils/clinic-time.js';
 import {
+  type AvailabilityRange,
+  DEFAULT_DAY_RANGE,
+  daySlots,
   freeSlots,
   isWithinAvailability,
 } from '../professionals/availability.js';
@@ -27,9 +30,13 @@ import type { Appointment } from './entities/appointment.entity.js';
 import {
   AppointmentStatus,
   BILLABLE_APPOINTMENT_STATUSES,
+  OCCUPYING_APPOINTMENT_STATUSES,
   OPEN_APPOINTMENT_STATUSES,
+  PRE_ARRIVAL_APPOINTMENT_STATUSES,
 } from './enums/appointment-status.enum.js';
 import type {
+  AgendaDaysQueryDto,
+  AgendaQueryDto,
   ListAppointmentsDto,
   RegisterAppointmentDto,
   SlotsQueryDto,
@@ -70,7 +77,11 @@ export class AppointmentsService {
     }
 
     const startsAt = new Date(input.startsAt);
-    const endsAt = new Date(input.endsAt);
+    const endsAt = input.endsAt
+      ? new Date(input.endsAt)
+      : new Date(
+          startsAt.getTime() + professional.appointmentDurationMinutes * 60_000,
+        );
     await this.assertNoConflict(clinicId, professional.id, startsAt, endsAt);
     await this.assertWithinAvailability(professional, startsAt, endsAt);
 
@@ -115,6 +126,14 @@ export class AppointmentsService {
     const changesSchedule =
       input.notes !== undefined || !!input.startsAt || !!input.endsAt;
     if (changesSchedule) this.assertOpen(appointment);
+    if (
+      (input.startsAt || input.endsAt) &&
+      appointment.status === AppointmentStatus.CHEGOU
+    ) {
+      throw new ConflictException(
+        'Paciente já chegou: a consulta não pode ser reagendada!',
+      );
+    }
     if (changesBilling) this.assertBillable(appointment);
     if (changesBilling) this.assertNotPaidOut(appointment);
     if (
@@ -181,7 +200,32 @@ export class AppointmentsService {
     if (status === AppointmentStatus.AGENDADA) {
       throw new BadRequestException('Não é possível voltar para AGENDADA!');
     }
-    await this.appointments.update(id, { status });
+    if (
+      status === AppointmentStatus.FALTOU &&
+      appointment.status === AppointmentStatus.CHEGOU
+    ) {
+      throw new ConflictException(
+        'O paciente já chegou: não é possível marcar falta!',
+      );
+    }
+    if (
+      status === AppointmentStatus.CHEGOU &&
+      !PRE_ARRIVAL_APPOINTMENT_STATUSES.includes(appointment.status)
+    ) {
+      throw new ConflictException('A chegada já foi registrada!');
+    }
+    if (
+      status === AppointmentStatus.CONFIRMADA &&
+      appointment.status === AppointmentStatus.CHEGOU
+    ) {
+      throw new BadRequestException(
+        'Paciente já chegou: não é possível voltar para CONFIRMADA!',
+      );
+    }
+    await this.appointments.update(id, {
+      status,
+      ...(status === AppointmentStatus.CHEGOU && { arrivedAt: new Date() }),
+    });
     await this.events.emitAsync(APPOINTMENT_STATUS_CHANGED, {
       clinicId,
       appointmentId: id,
@@ -251,7 +295,11 @@ export class AppointmentsService {
       throw new NotFoundException('Profissional não encontrado!');
     }
     if (!professional.availabilityRestricted) {
-      return { restricted: false, slots: [] };
+      return {
+        restricted: false,
+        durationMinutes: professional.appointmentDurationMinutes,
+        slots: [],
+      };
     }
 
     const ranges = await this.availability.findRanges(professional.id);
@@ -263,9 +311,112 @@ export class AppointmentsService {
       to: dayEnd,
     });
     const busy = booked.filter((a) =>
-      OPEN_APPOINTMENT_STATUSES.includes(a.status),
+      OCCUPYING_APPOINTMENT_STATUSES.includes(a.status),
     );
-    return { restricted: true, slots: freeSlots(input.date, ranges, busy) };
+    return {
+      restricted: true,
+      durationMinutes: professional.appointmentDurationMinutes,
+      slots: freeSlots(
+        input.date,
+        ranges,
+        busy,
+        professional.appointmentDurationMinutes,
+      ),
+    };
+  }
+
+  /** Faixas de atendimento: as do profissional restrito ou o expediente padrão, em todos os dias. */
+  private async agendaRanges(professional: {
+    id: string;
+    availabilityRestricted: boolean;
+  }): Promise<AvailabilityRange[]> {
+    if (professional.availabilityRestricted) {
+      return this.availability.findRanges(professional.id);
+    }
+    return Array.from({ length: 7 }, (_, weekday) => ({
+      weekday,
+      ...DEFAULT_DAY_RANGE,
+    }));
+  }
+
+  /**
+   * Dia da tela Agendas: a grade de horários (no passo da duração, dentro do atendimento) e as
+   * consultas que ocupam o dia (em aberto e concluídas; cancelada/falta libera o horário).
+   */
+  async agenda(clinicId: string, input: AgendaQueryDto) {
+    const professional = await this.getProfessionalOrFail(
+      clinicId,
+      input.professionalId,
+    );
+    const ranges = await this.agendaRanges(professional);
+    const list = await this.appointments.findByClinic(clinicId, {
+      professionalId: professional.id,
+      from: zonedToUtc(input.date, 0),
+      to: zonedToUtc(input.date, 1440),
+    });
+    const day = list.filter(
+      (a) =>
+        OCCUPYING_APPOINTMENT_STATUSES.includes(a.status) &&
+        a.startsAt < zonedToUtc(input.date, 1440) &&
+        a.endsAt > zonedToUtc(input.date, 0),
+    );
+    const withTriage = await this.appointments.findWithTriage(
+      clinicId,
+      day.map((a) => a.id),
+    );
+    return {
+      durationMinutes: professional.appointmentDurationMinutes,
+      restricted: professional.availabilityRestricted,
+      slots: daySlots(
+        input.date,
+        ranges,
+        professional.appointmentDurationMinutes,
+      ),
+      appointments: day.map((a) => ({
+        ...this.toResponse(a).appointment,
+        hasTriage: withTriage.has(a.id),
+      })),
+    };
+  }
+
+  /** Dias do mês com horário livre (verde) ou sem (cinza). */
+  async agendaDays(clinicId: string, input: AgendaDaysQueryDto) {
+    const professional = await this.getProfessionalOrFail(
+      clinicId,
+      input.professionalId,
+    );
+    const [year, month] = input.month.split('-').map(Number);
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const dates = Array.from(
+      { length: daysInMonth },
+      (_, i) => `${input.month}-${String(i + 1).padStart(2, '0')}`,
+    );
+
+    const ranges = await this.agendaRanges(professional);
+    const booked = await this.appointments.findByClinic(clinicId, {
+      professionalId: professional.id,
+      from: zonedToUtc(dates[0], 0),
+      to: zonedToUtc(dates[dates.length - 1], 1440),
+    });
+    const busy = booked.filter((a) =>
+      OCCUPYING_APPOINTMENT_STATUSES.includes(a.status),
+    );
+    return {
+      days: dates.map((date) => ({
+        date,
+        available:
+          freeSlots(date, ranges, busy, professional.appointmentDurationMinutes)
+            .length > 0,
+      })),
+    };
+  }
+
+  private async getProfessionalOrFail(clinicId: string, id: string) {
+    const professional = await this.professionals.findById(clinicId, id);
+    if (!professional) {
+      throw new NotFoundException('Profissional não encontrado!');
+    }
+    return professional;
   }
 
   private async assertNoConflict(
@@ -303,6 +454,7 @@ export class AppointmentsService {
         startsAt: a.startsAt,
         endsAt: a.endsAt,
         status: a.status,
+        arrivedAt: a.arrivedAt,
         price: a.price,
         paid: a.paid,
         paidAt: a.paidAt,

@@ -34,7 +34,7 @@ interface StoredCredentials {
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 /** Estados de consulta que ocupam a agenda. */
-const SYNCED_STATUSES = ['AGENDADA', 'CONFIRMADA', 'CONCLUIDA'];
+const SYNCED_STATUSES = ['AGENDADA', 'CONFIRMADA', 'CHEGOU', 'CONCLUIDA'];
 
 @Injectable()
 export class GoogleCalendarService {

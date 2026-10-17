@@ -14,11 +14,12 @@ export const registerAppointmentSchema = z
     patientId: z.uuid('O paciente é obrigatório'),
     professionalId: z.uuid('O profissional é obrigatório'),
     startsAt: datetime('O início deve ser uma data/hora ISO válida'),
-    endsAt: datetime('O fim deve ser uma data/hora ISO válida'),
+    /** Opcional: sem fim, vale a duração padrão do profissional. */
+    endsAt: datetime('O fim deve ser uma data/hora ISO válida').optional(),
     price,
     notes: z.string().max(2000).optional(),
   })
-  .refine((v) => new Date(v.endsAt) > new Date(v.startsAt), {
+  .refine((v) => !v.endsAt || new Date(v.endsAt) > new Date(v.startsAt), {
     message: 'O fim deve ser depois do início',
     path: ['endsAt'],
   });
@@ -47,6 +48,18 @@ export const slotsQuerySchema = z.object({
   date: z.iso.date('date deve ser uma data (AAAA-MM-DD)'),
 });
 
+export const agendaQuerySchema = z.object({
+  professionalId: z.uuid('O profissional é obrigatório'),
+  date: z.iso.date('date deve ser uma data (AAAA-MM-DD)'),
+});
+
+export const agendaDaysQuerySchema = z.object({
+  professionalId: z.uuid('O profissional é obrigatório'),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month deve ser AAAA-MM'),
+});
+
+export type AgendaQueryDto = z.infer<typeof agendaQuerySchema>;
+export type AgendaDaysQueryDto = z.infer<typeof agendaDaysQuerySchema>;
 export type SlotsQueryDto = z.infer<typeof slotsQuerySchema>;
 export type RegisterAppointmentDto = z.infer<typeof registerAppointmentSchema>;
 export type UpdateAppointmentDto = z.infer<typeof updateAppointmentSchema>;

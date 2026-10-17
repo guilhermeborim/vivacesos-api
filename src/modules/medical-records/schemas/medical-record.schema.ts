@@ -7,17 +7,84 @@ const content = z
   .min(1, 'O conteúdo é obrigatório')
   .max(20000, 'O conteúdo deve ter no máximo 20000 caracteres');
 
-/** Ficha nova (de uma consulta) ou adendo (de outra ficha, herda a consulta). */
-export const createEntrySchema = z
-  .object({
-    appointmentId: z.uuid().optional(),
-    parentEntryId: z.uuid().optional(),
-    content,
-  })
-  .refine((v) => !!v.appointmentId !== !!v.parentEntryId, {
-    message: 'Informe a consulta (ficha) ou a ficha original (adendo)',
-    path: ['appointmentId'],
-  });
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `Máximo de ${max} caracteres`)
+    .optional()
+    .transform((v) => v || undefined);
+
+export const prescriptionSchema = z.object({
+  medication: z
+    .string('O medicamento é obrigatório')
+    .trim()
+    .min(1, 'O medicamento é obrigatório')
+    .max(200, 'O medicamento deve ter no máximo 200 caracteres'),
+  dose: optionalText(50),
+  unit: optionalText(30),
+  /** Ex.: "8/8 horas", "1x ao dia". */
+  frequency: optionalText(100),
+  /** Ex.: "7 dias", "uso contínuo". */
+  duration: optionalText(100),
+  instructions: optionalText(500),
+});
+
+export const examRequestSchema = z.object({
+  name: z
+    .string('O exame é obrigatório')
+    .trim()
+    .min(1, 'O exame é obrigatório')
+    .max(200, 'O exame deve ter no máximo 200 caracteres'),
+  notes: optionalText(500),
+});
+
+export const certificateSchema = z.object({
+  /** Dias de afastamento; vazio = atestado de comparecimento. */
+  days: z
+    .number('Os dias devem ser um número')
+    .int('Os dias devem ser inteiros')
+    .min(1, 'Informe ao menos 1 dia')
+    .max(365, 'Máximo de 365 dias')
+    .optional(),
+  /** CID-10 (ex.: J00, A09.0); opcional. */
+  cid: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .max(10, 'O CID deve ter no máximo 10 caracteres')
+    .optional()
+    .transform((v) => v || undefined),
+  text: z
+    .string('O texto do atestado é obrigatório')
+    .trim()
+    .min(1, 'O texto do atestado é obrigatório')
+    .max(2000, 'O texto deve ter no máximo 2000 caracteres'),
+});
+
+export const referralSchema = z.object({
+  specialty: z
+    .string('A especialidade é obrigatória')
+    .trim()
+    .min(1, 'A especialidade é obrigatória')
+    .max(100, 'A especialidade deve ter no máximo 100 caracteres'),
+  reason: optionalText(1000),
+});
+
+export type CertificateDto = z.infer<typeof certificateSchema>;
+export type ReferralDto = z.infer<typeof referralSchema>;
+export type PrescriptionDto = z.infer<typeof prescriptionSchema>;
+export type ExamRequestDto = z.infer<typeof examRequestSchema>;
+
+/** Ficha nova de uma consulta, com prescrições, exames, atestados e encaminhamentos. */
+export const createEntrySchema = z.object({
+  appointmentId: z.uuid('Selecione a consulta'),
+  content,
+  prescriptions: z.array(prescriptionSchema).max(30).default([]),
+  exams: z.array(examRequestSchema).max(30).default([]),
+  certificates: z.array(certificateSchema).max(10).default([]),
+  referrals: z.array(referralSchema).max(10).default([]),
+});
 
 export const cancelEntrySchema = z.object({
   reason: z

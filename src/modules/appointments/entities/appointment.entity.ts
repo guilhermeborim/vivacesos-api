@@ -76,6 +76,15 @@ export class Appointment {
   })
   paymentMethod: PaymentMethod | null;
 
+  /** Quando a recepção marcou a chegada do paciente. */
+  @Column({
+    name: 'arrivedAt',
+    type: 'timestamptz',
+    nullable: true,
+    default: null,
+  })
+  arrivedAt: Date | null;
+
   /** Evento espelhado na Google Agenda do profissional (quando a integração está ligada). */
   @Column({
     name: 'googleEventId',

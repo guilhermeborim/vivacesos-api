@@ -107,7 +107,9 @@ export class MedicalRecordsController {
 
   @Post(':patientId/entries')
   @RequirePermissions(PERMISSIONS.RECORD_WRITE)
-  @ApiOperation({ summary: 'Cria uma ficha (ou adendo) no prontuário' })
+  @ApiOperation({
+    summary: 'Cria uma ficha no prontuário (conclui-se a consulta pelo front)',
+  })
   createEntry(
     @CurrentClinicId() clinicId: string,
     @CurrentUser() user: { id: string },

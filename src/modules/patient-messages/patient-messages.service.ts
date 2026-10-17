@@ -17,7 +17,7 @@ import { AppointmentsRepository } from '../appointments/appointments.repository.
 import type { Appointment } from '../appointments/entities/appointment.entity.js';
 import {
   AppointmentStatus,
-  OPEN_APPOINTMENT_STATUSES,
+  PRE_ARRIVAL_APPOINTMENT_STATUSES,
 } from '../appointments/enums/appointment-status.enum.js';
 import {
   PATIENT_MESSAGE_CHANNEL,
@@ -62,7 +62,7 @@ export class PatientMessagesService {
       clinicId,
     );
     if (!appointment) throw new NotFoundException('Consulta não encontrada!');
-    if (!OPEN_APPOINTMENT_STATUSES.includes(appointment.status)) {
+    if (!PRE_ARRIVAL_APPOINTMENT_STATUSES.includes(appointment.status)) {
       throw new ConflictException(
         `Não há mensagem para uma consulta ${appointment.status}!`,
       );

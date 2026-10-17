@@ -93,25 +93,45 @@ export interface Slot {
   endsAt: Date;
 }
 
-/** Horas de 1 h livres numa data: faixa do dia da semana, sem consulta em aberto e no futuro. */
-export function freeSlots(
+/** Expediente padrão de quem atende em qualquer horário (só para desenhar a grade). */
+export const DEFAULT_DAY_RANGE = { startMinute: 7 * 60, endMinute: 19 * 60 };
+
+/** Grade do dia: um horário por consulta, no passo da duração, dentro de cada faixa do dia da semana. */
+export function daySlots(
   date: string,
   ranges: AvailabilityRange[],
-  busy: { startsAt: Date; endsAt: Date }[],
-  now = new Date(),
+  durationMinutes = 60,
   tz = CLINIC_TZ,
 ): Slot[] {
   const weekday = localParts(zonedToUtc(date, 12 * 60, tz), tz).weekday;
   const slots: Slot[] = [];
   for (const r of ranges.filter((range) => range.weekday === weekday)) {
-    for (let m = r.startMinute; m + 60 <= r.endMinute; m += 60) {
-      const startsAt = zonedToUtc(date, m, tz);
-      const endsAt = zonedToUtc(date, m + 60, tz);
-      const taken = busy.some(
-        (b) => b.startsAt < endsAt && b.endsAt > startsAt,
-      );
-      if (!taken && startsAt > now) slots.push({ startsAt, endsAt });
+    for (
+      let m = r.startMinute;
+      m + durationMinutes <= r.endMinute;
+      m += durationMinutes
+    ) {
+      slots.push({
+        startsAt: zonedToUtc(date, m, tz),
+        endsAt: zonedToUtc(date, m + durationMinutes, tz),
+      });
     }
   }
   return slots.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+}
+
+/** Horários livres numa data, no passo da duração: dentro da faixa do dia, sem consulta em aberto e no futuro. */
+export function freeSlots(
+  date: string,
+  ranges: AvailabilityRange[],
+  busy: { startsAt: Date; endsAt: Date }[],
+  durationMinutes = 60,
+  now = new Date(),
+  tz = CLINIC_TZ,
+): Slot[] {
+  return daySlots(date, ranges, durationMinutes, tz).filter(
+    ({ startsAt, endsAt }) =>
+      startsAt > now &&
+      !busy.some((b) => b.startsAt < endsAt && b.endsAt > startsAt),
+  );
 }

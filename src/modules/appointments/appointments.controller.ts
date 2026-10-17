@@ -26,11 +26,15 @@ import {
 } from '../../common/schemas/payment.schema.js';
 import { AppointmentsService } from './appointments.service.js';
 import {
+  type AgendaDaysQueryDto,
+  type AgendaQueryDto,
   type ListAppointmentsDto,
   type SlotsQueryDto,
   type RegisterAppointmentDto,
   type UpdateAppointmentDto,
   type UpdateAppointmentStatusDto,
+  agendaDaysQuerySchema,
+  agendaQuerySchema,
   listAppointmentsSchema,
   slotsQuerySchema,
   registerAppointmentSchema,
@@ -73,6 +77,26 @@ export class AppointmentsController {
     @Query({ schema: slotsQuerySchema }) query: SlotsQueryDto,
   ) {
     return this.appointments.slots(clinicId, query);
+  }
+
+  @Get('agenda')
+  @ApiOperation({
+    summary: 'Grade e consultas do profissional num dia (tela Agendas)',
+  })
+  agenda(
+    @CurrentClinicId() clinicId: string,
+    @Query({ schema: agendaQuerySchema }) query: AgendaQueryDto,
+  ) {
+    return this.appointments.agenda(clinicId, query);
+  }
+
+  @Get('agenda/days')
+  @ApiOperation({ summary: 'Dias do mês com horário livre do profissional' })
+  agendaDays(
+    @CurrentClinicId() clinicId: string,
+    @Query({ schema: agendaDaysQuerySchema }) query: AgendaDaysQueryDto,
+  ) {
+    return this.appointments.agendaDays(clinicId, query);
   }
 
   @Get(':appointmentId')

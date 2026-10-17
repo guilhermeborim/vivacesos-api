@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import {
+  type EntryItemKind,
+  MedicalRecordEntryItem,
+} from './entities/medical-record-entry-item.entity.js';
 import { MedicalRecordEntry } from './entities/medical-record-entry.entity.js';
 import { MedicalRecord } from './entities/medical-record.entity.js';
 import { MedicalRecordEntryStatus } from './enums/medical-record-entry-status.enum.js';
@@ -14,10 +18,17 @@ export interface NewEntry {
   content: string;
 }
 
+export interface NewEntryItem {
+  kind: EntryItemKind;
+  /** JSON já cifrado. */
+  data: string;
+}
+
 const ENTRY_RELATIONS = {
   professional: { user: true },
   appointment: true,
   record: true,
+  items: true,
 } as const;
 
 /** Todas as consultas são escopadas por clínica (multi-tenant). Sem update/delete de fichas, exceto cancelar. */
@@ -84,7 +95,7 @@ export class MedicalRecordsRepository {
     return this.entries.find({
       where: { clinicId, recordId },
       relations: ENTRY_RELATIONS,
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'DESC', items: { position: 'ASC' } },
     });
   }
 
@@ -92,6 +103,21 @@ export class MedicalRecordsRepository {
     return this.entries.findOne({
       where: { clinicId, id },
       relations: ENTRY_RELATIONS,
+    });
+  }
+
+  /** A consulta já teve uma ficha (raiz, não adendo legado) cancelada. */
+  async hasCanceledEntryForAppointment(
+    clinicId: string,
+    appointmentId: string,
+  ) {
+    return this.entries.exists({
+      where: {
+        clinicId,
+        appointmentId,
+        parentEntryId: IsNull(),
+        status: MedicalRecordEntryStatus.CANCELADA,
+      },
     });
   }
 
@@ -107,11 +133,28 @@ export class MedicalRecordsRepository {
     });
   }
 
-  async createEntry(entry: NewEntry) {
-    const saved = await this.entries.save(entry);
+  /** Ficha e seus itens (prescrições/exames) saem juntos, numa transação. */
+  async createEntry(entry: NewEntry, items: NewEntryItem[] = []) {
+    const savedId = await this.entries.manager.transaction(async (manager) => {
+      const saved = await manager.save(MedicalRecordEntry, entry);
+      if (items.length) {
+        await manager.insert(
+          MedicalRecordEntryItem,
+          items.map((item, position) => ({
+            clinicId: entry.clinicId,
+            entryId: saved.id,
+            kind: item.kind,
+            position,
+            data: item.data,
+          })),
+        );
+      }
+      return saved.id;
+    });
     return this.entries.findOneOrFail({
-      where: { id: saved.id },
+      where: { id: savedId },
       relations: ENTRY_RELATIONS,
+      order: { items: { position: 'ASC' } },
     });
   }
 

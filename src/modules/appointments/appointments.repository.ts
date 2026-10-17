@@ -13,7 +13,7 @@ import {
 import { Appointment } from './entities/appointment.entity.js';
 import {
   type AppointmentStatus,
-  OPEN_APPOINTMENT_STATUSES,
+  OCCUPYING_APPOINTMENT_STATUSES,
 } from './enums/appointment-status.enum.js';
 
 export interface NewAppointment {
@@ -87,7 +87,7 @@ export class AppointmentsRepository {
     });
   }
 
-  /** Consulta em aberto do profissional que cruza o intervalo [startsAt, endsAt). */
+  /** Consulta em aberto (ou concluída) do profissional que cruza o intervalo [startsAt, endsAt). */
   findConflict(
     clinicId: string,
     professionalId: string,
@@ -99,7 +99,7 @@ export class AppointmentsRepository {
       where: {
         clinicId,
         professionalId,
-        status: In(OPEN_APPOINTMENT_STATUSES),
+        status: In(OCCUPYING_APPOINTMENT_STATUSES),
         startsAt: LessThan(endsAt),
         endsAt: MoreThan(startsAt),
         ...(exceptId && { id: Not(exceptId) }),
@@ -121,9 +121,20 @@ export class AppointmentsRepository {
   async markFutureForGoogleSync(clinicId: string) {
     await this.repository.query(
       `UPDATE appointments SET "googleSyncState" = 'PENDING'
-       WHERE "clinicId" = $1 AND status IN ('AGENDADA', 'CONFIRMADA') AND "startsAt" > now()`,
+       WHERE "clinicId" = $1 AND status IN ('AGENDADA', 'CONFIRMADA', 'CHEGOU') AND "startsAt" > now()`,
       [clinicId],
     );
+  }
+
+  /** Consultas (entre as informadas) que já têm triagem registrada. */
+  async findWithTriage(clinicId: string, appointmentIds: string[]) {
+    if (!appointmentIds.length) return new Set<string>();
+    const rows = await this.repository.query<{ appointmentId: string }[]>(
+      `SELECT "appointmentId" FROM appointment_triages
+       WHERE "clinicId" = $1 AND "appointmentId" = ANY($2::uuid[])`,
+      [clinicId, appointmentIds],
+    );
+    return new Set(rows.map((r) => r.appointmentId));
   }
 
   async update(id: string, data: Partial<Appointment>) {

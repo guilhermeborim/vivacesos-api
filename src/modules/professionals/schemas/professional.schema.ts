@@ -37,6 +37,14 @@ export const updateProfessionalSchema = z.object({
     .multipleOf(0.01, 'O percentual deve ter no máximo 2 casas decimais')
     .nullable()
     .optional(),
+  /** Duração padrão da consulta em minutos (5–240, de 5 em 5). */
+  appointmentDurationMinutes: z
+    .number('A duração deve ser um número')
+    .int('A duração deve ser inteira')
+    .min(5, 'A duração mínima é de 5 minutos')
+    .max(240, 'A duração máxima é de 240 minutos')
+    .multipleOf(5, 'A duração deve ser múltipla de 5 minutos')
+    .optional(),
   active: z.boolean().optional(),
 });
 

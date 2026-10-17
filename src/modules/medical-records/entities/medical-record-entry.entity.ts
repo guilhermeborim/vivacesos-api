@@ -4,12 +4,14 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   type Relation,
 } from 'typeorm';
 import { Appointment } from '../../appointments/entities/appointment.entity.js';
 import { Professional } from '../../professionals/entities/professional.entity.js';
 import { MedicalRecordEntryStatus } from '../enums/medical-record-entry-status.enum.js';
+import { MedicalRecordEntryItem } from './medical-record-entry-item.entity.js';
 import { MedicalRecord } from './medical-record.entity.js';
 
 /**
@@ -33,7 +35,7 @@ export class MedicalRecordEntry {
   @Column({ name: 'professionalId', type: 'uuid', nullable: false })
   professionalId: string;
 
-  /** Preenchido quando a ficha é um adendo de outra ficha. */
+  /** Legado: adendos não são mais criados; fichas antigas com adendo continuam legíveis. */
   @Column({
     name: 'parentEntryId',
     type: 'uuid',
@@ -68,6 +70,9 @@ export class MedicalRecordEntry {
 
   @CreateDateColumn({ name: 'createdAt', type: 'timestamptz', nullable: false })
   createdAt: Date;
+
+  @OneToMany(() => MedicalRecordEntryItem, (item) => item.entry)
+  items: Relation<MedicalRecordEntryItem[]>;
 
   @ManyToOne(() => MedicalRecord)
   @JoinColumn({ name: 'recordId' })

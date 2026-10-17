@@ -9,7 +9,7 @@ import { AppointmentsService } from '../appointments/appointments.service.js';
 import type { Appointment } from '../appointments/entities/appointment.entity.js';
 import {
   AppointmentStatus,
-  OPEN_APPOINTMENT_STATUSES,
+  PRE_ARRIVAL_APPOINTMENT_STATUSES,
 } from '../appointments/enums/appointment-status.enum.js';
 import { AppointmentLinkService } from './appointment-link.service.js';
 
@@ -56,7 +56,7 @@ export class PublicAppointmentsService {
         message: 'Consulta já estava cancelada.',
       };
     }
-    if (!OPEN_APPOINTMENT_STATUSES.includes(appointment.status)) {
+    if (!PRE_ARRIVAL_APPOINTMENT_STATUSES.includes(appointment.status)) {
       throw new ConflictException('Esta consulta não pode mais ser cancelada.');
     }
     await this.appointmentsService.updateStatus(
@@ -96,7 +96,7 @@ export class PublicAppointmentsService {
       startsAt: a.startsAt,
       status: a.status,
       canConfirm: a.status === AppointmentStatus.AGENDADA,
-      canCancel: OPEN_APPOINTMENT_STATUSES.includes(a.status),
+      canCancel: PRE_ARRIVAL_APPOINTMENT_STATUSES.includes(a.status),
     };
   }
 }
