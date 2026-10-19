@@ -12,6 +12,8 @@ export const envSchema = z.object({
   DATABASE_USER: z.string().min(1),
   DATABASE_PASSWORD: z.string().min(1),
   DATABASE_NAME: z.string().min(1),
+  // 'true' liga SSL na conexão com o Postgres (exigido por provedores gerenciados, ex. Neon).
+  DATABASE_SSL: z.string().optional(),
 
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRY: seconds,
